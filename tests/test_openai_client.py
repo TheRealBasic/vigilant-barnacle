@@ -33,9 +33,11 @@ def test_chat_parses_normal_text_response() -> None:
     client = _build_client_with_response(response)
 
     result = client.chat(
-        user_text="Hi",
+        messages=[
+            {"role": "system", "content": "You are Orb."},
+            {"role": "user", "content": "Hi"},
+        ],
         model="gpt-4o-mini",
-        system_prompt="You are Orb.",
     )
 
     assert result == "Hello from Orb!"
@@ -63,14 +65,18 @@ def test_chat_uses_fallback_for_none_or_empty_content() -> None:
     empty_client = _build_client_with_response(empty_content_response)
 
     none_result = none_client.chat(
-        user_text="Hi",
+        messages=[
+            {"role": "system", "content": "You are Orb."},
+            {"role": "user", "content": "Hi"},
+        ],
         model="gpt-4o-mini",
-        system_prompt="You are Orb.",
     )
     empty_result = empty_client.chat(
-        user_text="Hi",
+        messages=[
+            {"role": "system", "content": "You are Orb."},
+            {"role": "user", "content": "Hi"},
+        ],
         model="gpt-4o-mini",
-        system_prompt="You are Orb.",
     )
 
     assert none_result == FALLBACK_ASSISTANT_TEXT

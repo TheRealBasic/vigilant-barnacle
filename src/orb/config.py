@@ -43,6 +43,13 @@ class WakeWordConfig:
 
 
 @dataclass
+class ConversationConfig:
+    enabled: bool = False
+    max_turns: int = 6
+    reset_timeout_seconds: float | None = None
+
+
+@dataclass
 class OrbConfig:
     stop_keyword: str
     ambient_volume_normal: int
@@ -68,6 +75,7 @@ class OrbConfig:
     paths: PathConfig
     dry_run: DryRunConfig
     wake_word: WakeWordConfig
+    conversation: ConversationConfig
 
     @staticmethod
     def _require_mapping(value: Any, key_path: str) -> dict[str, Any]:
@@ -155,6 +163,11 @@ class OrbConfig:
             wake_word_data = {}
         wake_word_data = cls._require_mapping(wake_word_data, "wake_word")
 
+        conversation_data = root.get("conversation", {})
+        if conversation_data is None:
+            conversation_data = {}
+        conversation_data = cls._require_mapping(conversation_data, "conversation")
+
         ambient_volume_normal = cls._require_int(root["ambient_volume_normal"], "ambient_volume_normal")
         if not 0 <= ambient_volume_normal <= 100:
             raise ConfigError("ambient_volume_normal must be between 0 and 100")
@@ -220,6 +233,18 @@ class OrbConfig:
                     else None
                 ),
                 allow_touch=bool(wake_word_data.get("allow_touch", True)),
+            ),
+            conversation=ConversationConfig(
+                enabled=bool(conversation_data.get("enabled", False)),
+                max_turns=cls._require_positive_int(conversation_data.get("max_turns", 6), "conversation.max_turns"),
+                reset_timeout_seconds=(
+                    cls._require_positive_float(
+                        conversation_data["reset_timeout_seconds"],
+                        "conversation.reset_timeout_seconds",
+                    )
+                    if conversation_data.get("reset_timeout_seconds") is not None
+                    else None
+                ),
             ),
         )
 

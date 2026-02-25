@@ -136,3 +136,26 @@ def test_orb_config_from_dict_invalid_wake_word_sensitivity() -> None:
 
     with pytest.raises(ConfigError, match=r"wake_word\.sensitivity must be between 0.0 and 1.0"):
         OrbConfig.from_dict(data)
+
+
+def test_orb_config_conversation_defaults() -> None:
+    config = OrbConfig.from_dict(_valid_config_dict())
+
+    assert config.conversation.enabled is False
+    assert config.conversation.max_turns == 6
+    assert config.conversation.reset_timeout_seconds is None
+
+
+def test_orb_config_conversation_values() -> None:
+    data = _valid_config_dict()
+    data["conversation"] = {
+        "enabled": True,
+        "max_turns": 3,
+        "reset_timeout_seconds": 120,
+    }
+
+    config = OrbConfig.from_dict(data)
+
+    assert config.conversation.enabled is True
+    assert config.conversation.max_turns == 3
+    assert config.conversation.reset_timeout_seconds == 120.0

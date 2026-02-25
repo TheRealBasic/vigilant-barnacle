@@ -39,3 +39,9 @@ wake_word:
   allow_touch: true
 dry_run:
   enabled: false
+
+conversation:
+  enabled: true
+  max_turns: 6
+  # Optional timeout in seconds to clear history after inactivity.
+  reset_timeout_seconds: null
