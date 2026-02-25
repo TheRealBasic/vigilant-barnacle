@@ -5,3 +5,4 @@ numpy>=1.26.0
 PyYAML>=6.0.2
 gpiozero>=2.0
 rpi-ws281x>=5.0.0
+pytest>=8.3.0
