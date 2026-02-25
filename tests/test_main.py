@@ -33,8 +33,25 @@ class _OneShotEvent:
 
 
 class _DummyTouch:
+    def __init__(self) -> None:
+        self.started = False
+
     def start(self, _callback) -> None:
+        self.started = True
         return None
+
+    def stop(self) -> None:
+        return None
+
+
+class _RecordingInput:
+    def __init__(self, label: str, sink: list[str]) -> None:
+        self.label = label
+        self.sink = sink
+
+    def start(self, callback) -> None:
+        self.sink.append(self.label)
+        self.callback = callback
 
     def stop(self) -> None:
         return None
@@ -133,6 +150,7 @@ def test_run_cleans_up_recording_when_interaction_raises(monkeypatch: pytest.Mon
         stop_keyword="stop",
         chat_system_prompt="You are Orb.",
         models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
+        wake_word=SimpleNamespace(enabled=False, keyword="orb", engine="mock", allow_touch=True),
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -140,6 +158,7 @@ def test_run_cleans_up_recording_when_interaction_raises(monkeypatch: pytest.Mon
     monkeypatch.setattr(main, "load_config", lambda _path: cfg)
     monkeypatch.setattr(main.threading, "Event", _OneShotEvent)
     monkeypatch.setattr(main, "build_touch_input", lambda **_kwargs: _DummyTouch())
+    monkeypatch.setattr(main, "build_wake_word_input", lambda **_kwargs: _DummyTouch())
     monkeypatch.setattr(main, "AmbientPlayer", lambda **_kwargs: _DummyAmbient())
     monkeypatch.setattr(main, "AudioIO", lambda **_kwargs: audio)
     monkeypatch.setattr(main, "OrbOpenAIClient", lambda: _DummyAI(fail_step=fail_step))
@@ -149,3 +168,77 @@ def test_run_cleans_up_recording_when_interaction_raises(monkeypatch: pytest.Mon
     main.run()
 
     assert audio.cleanup_calls == ["/tmp/orb-recording.wav"]
+
+
+@pytest.mark.parametrize(
+    ("wake_enabled", "allow_touch", "expected"),
+    [
+        (False, True, ["touch"]),
+        (True, False, ["wake"]),
+        (True, True, ["touch", "wake"]),
+    ],
+)
+def test_run_selects_trigger_sources(monkeypatch: pytest.MonkeyPatch, tmp_path, wake_enabled: bool, allow_touch: bool, expected: list[str]) -> None:
+    started: list[str] = []
+
+    cfg = SimpleNamespace(
+        dry_run=SimpleNamespace(enabled=True),
+        paths=SimpleNamespace(
+            tts_output=str(tmp_path / "tts" / "reply.mp3"),
+            glass_chime="glass.wav",
+            down_chime="down.wav",
+            ambient_loop="ambient.ogg",
+            mpv_socket=str(tmp_path / "mpv.sock"),
+        ),
+        led_count=16,
+        led_pin=18,
+        led_brightness=0.2,
+        led_dma=10,
+        led_freq_hz=800000,
+        led_invert=False,
+        gpio_pin_touch=17,
+        touch_bounce_seconds=0.05,
+        ambient_volume_normal=20,
+        ambient_volume_ducked=6,
+        ambient_fade_step=1,
+        ambient_fade_interval=0.01,
+        record_sample_rate=16000,
+        record_channels=1,
+        record_blocksize=1024,
+        silence_seconds=1.0,
+        max_record_seconds=4.0,
+        silence_threshold_multiplier=1.3,
+        stop_keyword="stop",
+        chat_system_prompt="You are Orb.",
+        models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
+        wake_word=SimpleNamespace(enabled=wake_enabled, keyword="orb", engine="mock", allow_touch=allow_touch),
+    )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(main.argparse.ArgumentParser, "parse_args", lambda self: SimpleNamespace(config="x", dry_run=True))
+    monkeypatch.setattr(main, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(main.threading, "Event", _OneShotEvent)
+    monkeypatch.setattr(main, "build_touch_input", lambda **_kwargs: _RecordingInput("touch", started))
+    monkeypatch.setattr(main, "build_wake_word_input", lambda **_kwargs: _RecordingInput("wake", started))
+    monkeypatch.setattr(main, "AmbientPlayer", lambda **_kwargs: _DummyAmbient())
+    monkeypatch.setattr(main, "AudioIO", lambda **_kwargs: _DummyAudio())
+    monkeypatch.setattr(main, "OrbOpenAIClient", lambda: _DummyAI(fail_step="none"))
+    monkeypatch.setattr(main, "OrbLEDController", lambda *_args, **_kwargs: _DummyLEDs())
+    monkeypatch.setattr(main, "play_with_led_sync", lambda *_args, **_kwargs: None)
+
+    main.run()
+
+    assert started == expected
+
+
+def test_touch_event_deduplicates_triggers() -> None:
+    event = main.threading.Event()
+
+    def on_touch() -> None:
+        if not event.is_set():
+            event.set()
+
+    on_touch()
+    on_touch()
+
+    assert event.is_set()
