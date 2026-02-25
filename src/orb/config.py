@@ -33,6 +33,16 @@ class DryRunConfig:
 
 
 @dataclass
+class WakeWordConfig:
+    enabled: bool = False
+    keyword: str = "orb"
+    engine: str = "mock"
+    sensitivity: float | None = None
+    threshold: float | None = None
+    allow_touch: bool = True
+
+
+@dataclass
 class OrbConfig:
     stop_keyword: str
     ambient_volume_normal: int
@@ -57,6 +67,7 @@ class OrbConfig:
     models: ModelConfig
     paths: PathConfig
     dry_run: DryRunConfig
+    wake_word: WakeWordConfig
 
     @staticmethod
     def _require_mapping(value: Any, key_path: str) -> dict[str, Any]:
@@ -139,6 +150,11 @@ class OrbConfig:
             dry_run_data = {}
         dry_run_data = cls._require_mapping(dry_run_data, "dry_run")
 
+        wake_word_data = root.get("wake_word", {})
+        if wake_word_data is None:
+            wake_word_data = {}
+        wake_word_data = cls._require_mapping(wake_word_data, "wake_word")
+
         ambient_volume_normal = cls._require_int(root["ambient_volume_normal"], "ambient_volume_normal")
         if not 0 <= ambient_volume_normal <= 100:
             raise ConfigError("ambient_volume_normal must be between 0 and 100")
@@ -189,6 +205,22 @@ class OrbConfig:
                 mpv_socket=str(paths_data["mpv_socket"]),
             ),
             dry_run=DryRunConfig(enabled=bool(dry_run_data.get("enabled", False))),
+            wake_word=WakeWordConfig(
+                enabled=bool(wake_word_data.get("enabled", False)),
+                keyword=str(wake_word_data.get("keyword", "orb")).strip() or "orb",
+                engine=str(wake_word_data.get("engine", "mock")),
+                sensitivity=(
+                    cls._require_range(wake_word_data["sensitivity"], "wake_word.sensitivity", 0.0, 1.0)
+                    if "sensitivity" in wake_word_data and wake_word_data["sensitivity"] is not None
+                    else None
+                ),
+                threshold=(
+                    cls._require_positive_float(wake_word_data["threshold"], "wake_word.threshold")
+                    if "threshold" in wake_word_data and wake_word_data["threshold"] is not None
+                    else None
+                ),
+                allow_touch=bool(wake_word_data.get("allow_touch", True)),
+            ),
         )
 
 

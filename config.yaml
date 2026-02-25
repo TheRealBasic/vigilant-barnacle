@@ -28,5 +28,14 @@ paths:
   down_chime: "assets/down_chime.wav"
   tts_output: "tmp/orb_reply.mp3"
   mpv_socket: "/tmp/orb_ambient_mpv.sock"
+wake_word:
+  enabled: false
+  keyword: "orb"
+  engine: "mock"
+  # Optional tuning knobs (engine-dependent)
+  sensitivity: null
+  threshold: null
+  # When true, touch + wake-word can both trigger sessions.
+  allow_touch: true
 dry_run:
   enabled: false

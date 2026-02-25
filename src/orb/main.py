@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .audio import AmbientPlayer, AudioIO
 from .config import ConfigError, load_config
-from .gpio import build_touch_input
+from .gpio import build_touch_input, build_wake_word_input
 from .leds import LedConfig, OrbLEDController
 from .openai_client import OrbOpenAIClient
 from .state import OrbState
@@ -75,10 +75,23 @@ def run() -> None:
 
     def on_touch() -> None:
         if not touch_event.is_set():
-            logging.info("Touch detected")
+            logging.info("Trigger detected")
             touch_event.set()
 
-    touch = build_touch_input(dry_run=dry_run, pin=cfg.gpio_pin_touch, bounce_seconds=cfg.touch_bounce_seconds)
+    inputs: list[object] = []
+
+    if not cfg.wake_word.enabled or cfg.wake_word.allow_touch:
+        inputs.append(build_touch_input(dry_run=dry_run, pin=cfg.gpio_pin_touch, bounce_seconds=cfg.touch_bounce_seconds))
+
+    if cfg.wake_word.enabled:
+        inputs.append(
+            build_wake_word_input(
+                enabled=cfg.wake_word.enabled,
+                dry_run=dry_run,
+                keyword=cfg.wake_word.keyword,
+                engine=cfg.wake_word.engine,
+            )
+        )
 
     ambient = AmbientPlayer(
         loop_path=cfg.paths.ambient_loop,
@@ -96,10 +109,15 @@ def run() -> None:
 
     leds.start()
     leds.set_state(OrbState.AMBIENT)
-    touch.start(on_touch)
+    for trigger_input in inputs:
+        trigger_input.start(on_touch)
     ambient.start()
 
-    logging.info("Orb is running. Waiting for touch...")
+    if cfg.wake_word.enabled:
+        mode = "touch + wake-word" if cfg.wake_word.allow_touch else "wake-word"
+        logging.info("Orb is running. Waiting for %s triggers...", mode)
+    else:
+        logging.info("Orb is running. Waiting for touch...")
 
     try:
         while True:
@@ -160,7 +178,8 @@ def run() -> None:
     except KeyboardInterrupt:
         logging.info("Shutting down Orb")
     finally:
-        touch.stop()
+        for trigger_input in inputs:
+            trigger_input.stop()
         ambient.stop()
         leds.stop()
 

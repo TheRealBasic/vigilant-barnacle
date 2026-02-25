@@ -3,7 +3,8 @@
 A touch-to-talk Raspberry Pi voice assistant with a soft **Frutiger Aero** aesthetic:
 - Ambient audio loop always playing quietly.
 - Aqua LED animations on a WS2812/SK6812 ring.
-- TTP223 capacitive touch trigger.
+- TTP223 capacitive touch trigger (optional when wake-word mode is enabled).
+- Optional wake-word trigger (mock engine included for development/testing).
 - OpenAI speech-to-text, chat, and text-to-speech.
 - Headless operation on Raspberry Pi OS.
 - Dry-run mode for development on a laptop/desktop.
@@ -103,11 +104,34 @@ From repo root:
 PYTHONPATH=src python -m orb.main --config config.yaml
 ```
 
-Dry run (no GPIO/LED hardware, touch simulated by ENTER key):
+Dry run (no GPIO/LED hardware):
+- Press `ENTER` to simulate touch
+- If wake-word is enabled with `engine: mock`, type the wake word and press `ENTER`
+
 
 ```bash
 PYTHONPATH=src python -m orb.main --config config.yaml --dry-run
 ```
+
+## Wake-word mode
+
+Add this section to `config.yaml` to enable wake-word triggering:
+
+```yaml
+wake_word:
+  enabled: true
+  keyword: "orb"
+  engine: "mock"
+  sensitivity: null
+  threshold: null
+  allow_touch: true
+```
+
+Notes:
+- `enabled: true` starts the wake-word listener.
+- `allow_touch: true` keeps touch enabled too, so either trigger can start a session.
+- `engine: mock` is a built-in development engine; in dry-run, entering the keyword triggers a session.
+- `sensitivity` and `threshold` are optional tuning values for future/engine-specific implementations.
 
 ## Runtime behavior
 
@@ -115,9 +139,10 @@ PYTHONPATH=src python -m orb.main --config config.yaml --dry-run
    - Ambient loop plays continuously (~15% volume by default).
    - LED ring shows slow aqua drift.
 
-2. **Touch-to-talk**
-   - On touch: glass chime, LEDs breathe cyan, ambient ducks to ~6%.
+2. **Trigger-to-talk**
+   - On touch or wake-word (depending on config): glass chime, LEDs breathe cyan, ambient ducks to ~6%.
    - Mic recording starts immediately.
+   - Rapid repeated detections are deduplicated to prevent overlapping sessions.
 
 3. **Stop listening**
    - Stop when silence persists for `silence_seconds`.
@@ -171,6 +196,6 @@ sudo usermod -aG gpio $USER
 Log out/in after group changes.
 
 ## Notes
-- This app is **not always listening**; it records only after touch.
+- This app is **not always listening** for full speech; it records only after a configured trigger (touch and/or wake-word).
 - Network/API failures are handled gracefully: down chime, ambient restore, continue running.
 - Console logs include timestamps for headless debugging.

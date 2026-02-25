@@ -24,6 +24,12 @@ def _valid_config_dict() -> dict:
             "chat": "gpt-4o-mini",
             "tts": "gpt-4o-mini-tts",
         },
+        "wake_word": {
+            "enabled": False,
+            "keyword": "orb",
+            "engine": "mock",
+            "allow_touch": True,
+        },
         "paths": {
             "ambient_loop": "assets/ambient_loop.ogg",
             "glass_chime": "assets/glass_chime.wav",
@@ -41,6 +47,7 @@ def test_orb_config_from_dict_valid_config() -> None:
     assert config.ambient_volume_normal == 20
     assert config.models.chat == "gpt-4o-mini"
     assert config.paths.glass_chime.endswith("glass_chime.wav")
+    assert config.wake_word.engine == "mock"
 
 
 def test_load_config_valid_yaml(tmp_path: Path) -> None:
@@ -61,6 +68,13 @@ models:
   transcribe: gpt-4o-mini-transcribe
   chat: gpt-4o-mini
   tts: gpt-4o-mini-tts
+wake_word:
+  enabled: true
+  keyword: orb
+  engine: mock
+  sensitivity: 0.6
+  threshold: 0.9
+  allow_touch: false
 paths:
   ambient_loop: assets/ambient_loop.ogg
   glass_chime: assets/glass_chime.wav
@@ -75,6 +89,8 @@ paths:
 
     assert config.led_brightness == pytest.approx(0.35)
     assert config.models.transcribe == "gpt-4o-mini-transcribe"
+    assert config.wake_word.enabled is True
+    assert config.wake_word.allow_touch is False
 
 
 @pytest.mark.parametrize(
@@ -111,4 +127,12 @@ def test_orb_config_from_dict_invalid_numeric_ranges(
     data[field_name] = invalid_value
 
     with pytest.raises(ConfigError, match=expected_message):
+        OrbConfig.from_dict(data)
+
+
+def test_orb_config_from_dict_invalid_wake_word_sensitivity() -> None:
+    data = _valid_config_dict()
+    data["wake_word"]["sensitivity"] = 2.0
+
+    with pytest.raises(ConfigError, match=r"wake_word\.sensitivity must be between 0.0 and 1.0"):
         OrbConfig.from_dict(data)
