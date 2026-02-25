@@ -1,0 +1,32 @@
+stop_keyword: "orb sleep"
+ambient_volume_normal: 15
+ambient_volume_ducked: 6
+silence_seconds: 2.0
+max_record_seconds: 25.0
+silence_threshold_multiplier: 1.8
+gpio_pin_touch: 17
+touch_bounce_seconds: 0.25
+led_count: 16
+led_pin: 18
+led_brightness: 0.22
+led_dma: 10
+led_freq_hz: 800000
+led_invert: false
+record_sample_rate: 16000
+record_channels: 1
+record_blocksize: 1024
+ambient_fade_step: 1
+ambient_fade_interval: 0.08
+chat_system_prompt: "You are Frutiger Aero Orb, a calm and helpful voice assistant with a soft optimistic aesthetic. Keep answers minimal, friendly, and practical."
+models:
+  transcribe: "gpt-4o-mini-transcribe"
+  chat: "gpt-4o-mini"
+  tts: "gpt-4o-mini-tts"
+paths:
+  ambient_loop: "assets/ambient_loop.ogg"
+  glass_chime: "assets/glass_chime.wav"
+  down_chime: "assets/down_chime.wav"
+  tts_output: "tmp/orb_reply.mp3"
+  mpv_socket: "/tmp/orb_ambient_mpv.sock"
+dry_run:
+  enabled: false

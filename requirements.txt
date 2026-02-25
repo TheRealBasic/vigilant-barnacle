@@ -1,0 +1,7 @@
+openai>=1.51.0
+sounddevice>=0.4.7
+soundfile>=0.12.1
+numpy>=1.26.0
+PyYAML>=6.0.2
+gpiozero>=2.0
+rpi-ws281x>=5.0.0
