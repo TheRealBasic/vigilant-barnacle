@@ -36,10 +36,18 @@ class AmbientPlayer:
         self.fade_step = max(1, fade_step)
         self.fade_interval = fade_interval
         self.proc: subprocess.Popen[str] | None = None
+        self._ipc_failure_log_window_s = 5.0
+        self._last_ipc_failure_log_at = 0.0
+        self._last_ipc_error: Exception | None = None
+
+    def _log_ipc_failure_once(self, exc: Exception) -> None:
+        now = time.time()
+        if now - self._last_ipc_failure_log_at >= self._ipc_failure_log_window_s:
+            logging.warning("Ambient IPC unavailable (%s)", exc)
+            self._last_ipc_failure_log_at = now
 
     def start(self) -> None:
-        if os.path.exists(self.socket_path):
-            os.remove(self.socket_path)
+        Path(self.socket_path).unlink(missing_ok=True)
 
         cmd = [
             "mpv",
@@ -61,8 +69,10 @@ class AmbientPlayer:
                 self.proc.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        if os.path.exists(self.socket_path):
-            os.remove(self.socket_path)
+        try:
+            Path(self.socket_path).unlink(missing_ok=True)
+        except OSError as exc:
+            logging.debug("Failed to remove ambient IPC socket %s: %s", self.socket_path, exc)
 
     def fade_to(self, target: int) -> None:
         target = int(max(0, min(100, target)))
@@ -75,15 +85,41 @@ class AmbientPlayer:
         self._set_volume(target)
 
     def _set_volume(self, vol: int) -> None:
-        self._ipc({"command": ["set_property", "volume", int(vol)]})
+        vol = int(vol)
+        sent = self._ipc({"command": ["set_property", "volume", vol]})
+        if not sent:
+            self._log_ipc_failure_once(self._last_ipc_error or ConnectionError("set_property volume failed"))
+            if self._attempt_restart():
+                sent = self._ipc({"command": ["set_property", "volume", vol]})
+            if not sent:
+                self._log_ipc_failure_once(self._last_ipc_error or ConnectionError("set_property volume retry failed"))
         self.volume = int(vol)
 
-    def _ipc(self, payload: dict) -> None:
+    def _attempt_restart(self) -> bool:
+        proc_dead = self.proc is None or self.proc.poll() is not None
+        if not proc_dead:
+            return False
+        if not os.path.exists(self.loop_path):
+            return False
+        try:
+            self.start()
+            return True
+        except (FileNotFoundError, OSError, RuntimeError) as exc:
+            self._log_ipc_failure_once(exc)
+            return False
+
+    def _ipc(self, payload: dict) -> bool:
         msg = (json.dumps(payload) + "\n").encode("utf-8")
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
-            s.connect(self.socket_path)
-            s.sendall(msg)
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)
+                s.connect(self.socket_path)
+                s.sendall(msg)
+            self._last_ipc_error = None
+            return True
+        except (socket.timeout, FileNotFoundError, ConnectionRefusedError, OSError) as exc:
+            self._last_ipc_error = exc
+            return False
 
     def _wait_for_socket(self, timeout_s: float) -> None:
         end = time.time() + timeout_s
