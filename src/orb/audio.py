@@ -147,49 +147,60 @@ class AudioIO:
         threshold_multiplier: float,
     ) -> RecordingResult:
         logging.info("Recording started")
-        chunks: list[np.ndarray] = []
-        start = time.time()
-        silent_for = 0.0
-        threshold = None
-        calibrate_seconds = 1.0
-
-        with sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype="float32",
-            blocksize=self.blocksize,
-        ) as stream:
-            while True:
-                data, _overflowed = stream.read(self.blocksize)
-                mono = np.mean(data, axis=1)
-                rms = float(np.sqrt(np.mean(np.square(mono)) + 1e-12))
-                chunks.append(mono.copy())
-
-                elapsed = time.time() - start
-                if elapsed <= calibrate_seconds:
-                    threshold = rms if threshold is None else (0.9 * threshold + 0.1 * rms)
-                else:
-                    assert threshold is not None
-                    silence_threshold = threshold * threshold_multiplier
-                    if rms < silence_threshold:
-                        silent_for += self.blocksize / self.sample_rate
-                    else:
-                        silent_for = 0.0
-
-                if elapsed >= max_record_seconds:
-                    logging.info("Stopped recording: max duration reached")
-                    break
-                if elapsed > calibrate_seconds and silent_for >= silence_seconds:
-                    logging.info("Stopped recording: silence detected")
-                    break
-
         wav_file = tempfile.NamedTemporaryFile(prefix="orb_record_", suffix=".wav", delete=False)
         wav_path = wav_file.name
         wav_file.close()
 
-        audio = np.concatenate(chunks, axis=0).astype(np.float32)
-        sf.write(wav_path, audio, self.sample_rate)
-        total_seconds = len(audio) / self.sample_rate
+        start = time.time()
+        silent_for = 0.0
+        threshold = None
+        calibrate_seconds = 1.0
+        sample_count = 0
+
+        try:
+            with sf.SoundFile(
+                wav_path,
+                mode="w",
+                samplerate=self.sample_rate,
+                channels=1,
+                subtype="FLOAT",
+            ) as out_file:
+                with sd.InputStream(
+                    samplerate=self.sample_rate,
+                    channels=self.channels,
+                    dtype="float32",
+                    blocksize=self.blocksize,
+                ) as stream:
+                    while True:
+                        data, _overflowed = stream.read(self.blocksize)
+                        mono = np.mean(data, axis=1).astype(np.float32, copy=False)
+                        out_file.write(mono)
+                        sample_count += len(mono)
+
+                        rms = float(np.sqrt(np.mean(np.square(mono)) + 1e-12))
+
+                        elapsed = time.time() - start
+                        if elapsed <= calibrate_seconds:
+                            threshold = rms if threshold is None else (0.9 * threshold + 0.1 * rms)
+                        else:
+                            assert threshold is not None
+                            silence_threshold = threshold * threshold_multiplier
+                            if rms < silence_threshold:
+                                silent_for += self.blocksize / self.sample_rate
+                            else:
+                                silent_for = 0.0
+
+                        if elapsed >= max_record_seconds:
+                            logging.info("Stopped recording: max duration reached")
+                            break
+                        if elapsed > calibrate_seconds and silent_for >= silence_seconds:
+                            logging.info("Stopped recording: silence detected")
+                            break
+        except Exception:
+            AudioIO.cleanup_file(wav_path)
+            raise
+
+        total_seconds = sample_count / self.sample_rate
         logging.info("Recording saved: %s (%.2fs)", wav_path, total_seconds)
         return RecordingResult(wav_path=wav_path, seconds=total_seconds)
 
