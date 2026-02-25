@@ -23,13 +23,10 @@ class OrbOpenAIClient:
             )
         return transcript.text.strip()
 
-    def chat(self, user_text: str, model: str, system_prompt: str) -> str:
+    def chat(self, messages: list[dict[str, str]], model: str) -> str:
         response = self.client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text},
-            ],
+            messages=messages,
             temperature=0.5,
             max_tokens=140,
         )

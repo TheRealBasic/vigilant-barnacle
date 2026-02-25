@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .audio import AmbientPlayer, AudioIO
 from .config import ConfigError, load_config
+from .conversation import ConversationBuffer
 from .gpio import build_touch_input, build_wake_word_input
 from .leds import LedConfig, OrbLEDController
 from .openai_client import OrbOpenAIClient
@@ -106,6 +107,10 @@ def run() -> None:
         blocksize=cfg.record_blocksize,
     )
     ai = OrbOpenAIClient()
+    conversation = ConversationBuffer(
+        max_turns=cfg.conversation.max_turns,
+        reset_timeout_seconds=cfg.conversation.reset_timeout_seconds,
+    )
 
     leds.start()
     leds.set_state(OrbState.AMBIENT)
@@ -140,8 +145,19 @@ def run() -> None:
                 transcript = ai.transcribe(recording.wav_path, cfg.models.transcribe)
                 logging.info("Transcript: %s", transcript or "<empty>")
 
-                if cfg.stop_keyword.lower() in transcript.lower():
-                    logging.info("Stop keyword detected. Returning to ambient mode.")
+                lowered_transcript = transcript.lower()
+
+                if cfg.stop_keyword.lower() in lowered_transcript:
+                    logging.info("Stop keyword detected. Conversation reset.")
+                    conversation.reset()
+                    audio.play_file_blocking(cfg.paths.down_chime)
+                    ambient.fade_to(cfg.ambient_volume_normal)
+                    leds.set_state(OrbState.AMBIENT)
+                    continue
+
+                if "reset conversation" in lowered_transcript:
+                    logging.info("Explicit reset phrase detected. Conversation reset.")
+                    conversation.reset()
                     audio.play_file_blocking(cfg.paths.down_chime)
                     ambient.fade_to(cfg.ambient_volume_normal)
                     leds.set_state(OrbState.AMBIENT)
@@ -154,8 +170,22 @@ def run() -> None:
                     leds.set_state(OrbState.AMBIENT)
                     continue
 
-                reply = ai.chat(transcript, cfg.models.chat, cfg.chat_system_prompt)
+                if cfg.conversation.enabled and conversation.maybe_reset_for_inactivity():
+                    logging.info("Conversation reset due to inactivity timeout.")
+
+                if cfg.conversation.enabled:
+                    messages = conversation.build_messages(cfg.chat_system_prompt, transcript)
+                else:
+                    messages = [
+                        {"role": "system", "content": cfg.chat_system_prompt},
+                        {"role": "user", "content": transcript},
+                    ]
+
+                reply = ai.chat(messages=messages, model=cfg.models.chat)
                 logging.info("Assistant: %s", reply)
+
+                if cfg.conversation.enabled:
+                    conversation.add_turn(transcript, reply)
 
                 tts_path = ai.tts(reply, cfg.models.tts, cfg.paths.tts_output)
 
