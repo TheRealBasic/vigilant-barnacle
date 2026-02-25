@@ -107,6 +107,7 @@ def run() -> None:
             touch_event.clear()
 
             try:
+                recording = None
                 ambient.fade_to(cfg.ambient_volume_ducked)
                 audio.play_file_blocking(cfg.paths.glass_chime)
                 leds.set_state(OrbState.LISTENING)
@@ -126,7 +127,6 @@ def run() -> None:
                     audio.play_file_blocking(cfg.paths.down_chime)
                     ambient.fade_to(cfg.ambient_volume_normal)
                     leds.set_state(OrbState.AMBIENT)
-                    audio.cleanup_file(recording.wav_path)
                     continue
 
                 if not transcript.strip():
@@ -134,7 +134,6 @@ def run() -> None:
                     audio.play_file_blocking(cfg.paths.down_chime)
                     ambient.fade_to(cfg.ambient_volume_normal)
                     leds.set_state(OrbState.AMBIENT)
-                    audio.cleanup_file(recording.wav_path)
                     continue
 
                 reply = ai.chat(transcript, cfg.models.chat, cfg.chat_system_prompt)
@@ -147,7 +146,6 @@ def run() -> None:
 
                 ambient.fade_to(cfg.ambient_volume_normal)
                 leds.set_state(OrbState.AMBIENT)
-                audio.cleanup_file(recording.wav_path)
             except Exception as exc:
                 logging.exception("Interaction failed: %s", exc)
                 leds.set_state(OrbState.ERROR)
@@ -155,6 +153,9 @@ def run() -> None:
                 ambient.fade_to(cfg.ambient_volume_normal)
                 leds.set_state(OrbState.AMBIENT)
                 time.sleep(0.3)
+            finally:
+                if recording is not None:
+                    audio.cleanup_file(recording.wav_path)
 
     except KeyboardInterrupt:
         logging.info("Shutting down Orb")
