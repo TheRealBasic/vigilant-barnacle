@@ -27,7 +27,8 @@ A touch-to-talk Raspberry Pi voice assistant with a soft **Frutiger Aero** aesth
     ├── leds.py
     ├── main.py
     ├── openai_client.py
-    └── state.py
+    ├── state.py
+    └── web.py
 ```
 
 ## Hardware Wiring Notes
@@ -132,6 +133,47 @@ Notes:
 - `allow_touch: true` keeps touch enabled too, so either trigger can start a session.
 - `engine: mock` is a built-in development engine; in dry-run, entering the keyword triggers a session.
 - `sensitivity` and `threshold` are optional tuning values for future/engine-specific implementations.
+
+
+## Local Web API (optional)
+
+Orb can expose a small HTTP control/status API for local integrations.
+
+Security note:
+- Keep `web.host` bound to `127.0.0.1` by default.
+- Do **not** expose this API publicly without adding your own auth/proxy controls.
+
+Config snippet:
+
+```yaml
+web:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+```
+
+Example usage:
+
+```bash
+# Health and state
+curl -s http://127.0.0.1:8765/health
+curl -s http://127.0.0.1:8765/state
+
+# Trigger an interaction
+curl -s -X POST http://127.0.0.1:8765/actions/trigger
+
+# Toggle simulation mode
+curl -s -X POST http://127.0.0.1:8765/actions/simulation \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled": true}'
+
+# Reset conversation
+curl -s -X POST http://127.0.0.1:8765/actions/reset
+```
+
+API behavior notes:
+- State payload returns only summaries of transcript/reply text.
+- Full transcript content and API key data are intentionally not exposed.
 
 ## Runtime behavior
 

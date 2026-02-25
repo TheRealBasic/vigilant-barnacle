@@ -45,3 +45,9 @@ conversation:
   max_turns: 6
   # Optional timeout in seconds to clear history after inactivity.
   reset_timeout_seconds: null
+
+web:
+  enabled: false
+  # Security: keep localhost unless intentionally exposing to a trusted LAN.
+  host: "127.0.0.1"
+  port: 8765

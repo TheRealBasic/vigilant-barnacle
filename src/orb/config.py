@@ -50,6 +50,13 @@ class ConversationConfig:
 
 
 @dataclass
+class WebConfig:
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8765
+
+
+@dataclass
 class OrbConfig:
     stop_keyword: str
     ambient_volume_normal: int
@@ -76,6 +83,7 @@ class OrbConfig:
     dry_run: DryRunConfig
     wake_word: WakeWordConfig
     conversation: ConversationConfig
+    web: WebConfig
 
     @staticmethod
     def _require_mapping(value: Any, key_path: str) -> dict[str, Any]:
@@ -168,6 +176,11 @@ class OrbConfig:
             conversation_data = {}
         conversation_data = cls._require_mapping(conversation_data, "conversation")
 
+        web_data = root.get("web", {})
+        if web_data is None:
+            web_data = {}
+        web_data = cls._require_mapping(web_data, "web")
+
         ambient_volume_normal = cls._require_int(root["ambient_volume_normal"], "ambient_volume_normal")
         if not 0 <= ambient_volume_normal <= 100:
             raise ConfigError("ambient_volume_normal must be between 0 and 100")
@@ -245,6 +258,11 @@ class OrbConfig:
                     if conversation_data.get("reset_timeout_seconds") is not None
                     else None
                 ),
+            ),
+            web=WebConfig(
+                enabled=bool(web_data.get("enabled", False)),
+                host=str(web_data.get("host", "127.0.0.1")),
+                port=cls._require_positive_int(web_data.get("port", 8765), "web.port"),
             ),
         )
 

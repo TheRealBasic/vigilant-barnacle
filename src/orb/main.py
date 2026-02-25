@@ -15,6 +15,7 @@ from .gpio import build_touch_input, build_wake_word_input
 from .leds import LedConfig, OrbLEDController
 from .openai_client import OrbOpenAIClient
 from .state import OrbState
+from .web import OrbWebServer, OrbWebStatus
 
 
 def setup_logging() -> None:
@@ -56,7 +57,7 @@ def run() -> None:
 
     dry_run = args.dry_run or cfg.dry_run.enabled
 
-    if not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("OPENAI_API_KEY") and not dry_run:
         raise RuntimeError("OPENAI_API_KEY is not set")
 
     Path(cfg.paths.tts_output).parent.mkdir(parents=True, exist_ok=True)
@@ -74,10 +75,26 @@ def run() -> None:
     )
     touch_event = threading.Event()
 
-    def on_touch() -> None:
+    simulation_enabled = False
+    simulation_lock = threading.Lock()
+
+    def set_simulation_enabled(enabled: bool) -> None:
+        nonlocal simulation_enabled
+        with simulation_lock:
+            simulation_enabled = enabled
+        web_status.set_simulation_enabled(enabled)
+
+    def get_simulation_enabled() -> bool:
+        with simulation_lock:
+            return simulation_enabled
+
+    def trigger_interaction() -> None:
         if not touch_event.is_set():
             logging.info("Trigger detected")
             touch_event.set()
+
+    def on_touch() -> None:
+        trigger_interaction()
 
     inputs: list[object] = []
 
@@ -112,11 +129,31 @@ def run() -> None:
         reset_timeout_seconds=cfg.conversation.reset_timeout_seconds,
     )
 
+    web_status = OrbWebStatus(dry_run=dry_run)
+    web_status.set_state(OrbState.AMBIENT)
+    web_status.set_simulation_enabled(simulation_enabled)
+
+    def reset_conversation() -> None:
+        conversation.reset()
+
+    web_server = OrbWebServer(
+        host=cfg.web.host,
+        port=cfg.web.port,
+        status=web_status,
+        trigger_interaction=trigger_interaction,
+        reset_conversation=reset_conversation,
+        set_simulation_enabled=set_simulation_enabled,
+    )
+
     leds.start()
     leds.set_state(OrbState.AMBIENT)
     for trigger_input in inputs:
         trigger_input.start(on_touch)
     ambient.start()
+    web_status.set_ambient_running(True)
+
+    if cfg.web.enabled:
+        web_server.start()
 
     if cfg.wake_word.enabled:
         mode = "touch + wake-word" if cfg.wake_word.allow_touch else "wake-word"
@@ -134,72 +171,90 @@ def run() -> None:
                 ambient.fade_to(cfg.ambient_volume_ducked)
                 audio.play_file_blocking(cfg.paths.glass_chime)
                 leds.set_state(OrbState.LISTENING)
+                web_status.set_state(OrbState.LISTENING)
 
-                recording = audio.record_until_stop(
-                    silence_seconds=cfg.silence_seconds,
-                    max_record_seconds=cfg.max_record_seconds,
-                    threshold_multiplier=cfg.silence_threshold_multiplier,
-                )
-
-                leds.set_state(OrbState.PROCESSING)
-                transcript = ai.transcribe(recording.wav_path, cfg.models.transcribe)
-                logging.info("Transcript: %s", transcript or "<empty>")
-
-                lowered_transcript = transcript.lower()
-
-                if cfg.stop_keyword.lower() in lowered_transcript:
-                    logging.info("Stop keyword detected. Conversation reset.")
-                    conversation.reset()
-                    audio.play_file_blocking(cfg.paths.down_chime)
-                    ambient.fade_to(cfg.ambient_volume_normal)
-                    leds.set_state(OrbState.AMBIENT)
-                    continue
-
-                if "reset conversation" in lowered_transcript:
-                    logging.info("Explicit reset phrase detected. Conversation reset.")
-                    conversation.reset()
-                    audio.play_file_blocking(cfg.paths.down_chime)
-                    ambient.fade_to(cfg.ambient_volume_normal)
-                    leds.set_state(OrbState.AMBIENT)
-                    continue
-
-                if not transcript.strip():
-                    logging.info("Empty transcript. Returning to ambient mode.")
-                    audio.play_file_blocking(cfg.paths.down_chime)
-                    ambient.fade_to(cfg.ambient_volume_normal)
-                    leds.set_state(OrbState.AMBIENT)
-                    continue
-
-                if cfg.conversation.enabled and conversation.maybe_reset_for_inactivity():
-                    logging.info("Conversation reset due to inactivity timeout.")
-
-                if cfg.conversation.enabled:
-                    messages = conversation.build_messages(cfg.chat_system_prompt, transcript)
+                if get_simulation_enabled():
+                    transcript = "[simulated transcript]"
+                    reply = "[simulated reply]"
                 else:
-                    messages = [
-                        {"role": "system", "content": cfg.chat_system_prompt},
-                        {"role": "user", "content": transcript},
-                    ]
+                    recording = audio.record_until_stop(
+                        silence_seconds=cfg.silence_seconds,
+                        max_record_seconds=cfg.max_record_seconds,
+                        threshold_multiplier=cfg.silence_threshold_multiplier,
+                    )
 
-                reply = ai.chat(messages=messages, model=cfg.models.chat)
-                logging.info("Assistant: %s", reply)
+                    leds.set_state(OrbState.PROCESSING)
+                    web_status.set_state(OrbState.PROCESSING)
+                    transcript = ai.transcribe(recording.wav_path, cfg.models.transcribe)
+                    logging.info("Transcript: %s", transcript or "<empty>")
 
-                if cfg.conversation.enabled:
-                    conversation.add_turn(transcript, reply)
+                    lowered_transcript = transcript.lower()
 
-                tts_path = ai.tts(reply, cfg.models.tts, cfg.paths.tts_output)
+                    if cfg.stop_keyword.lower() in lowered_transcript:
+                        logging.info("Stop keyword detected. Conversation reset.")
+                        conversation.reset()
+                        audio.play_file_blocking(cfg.paths.down_chime)
+                        ambient.fade_to(cfg.ambient_volume_normal)
+                        leds.set_state(OrbState.AMBIENT)
+                        web_status.set_state(OrbState.AMBIENT)
+                        continue
+
+                    if "reset conversation" in lowered_transcript:
+                        logging.info("Explicit reset phrase detected. Conversation reset.")
+                        conversation.reset()
+                        audio.play_file_blocking(cfg.paths.down_chime)
+                        ambient.fade_to(cfg.ambient_volume_normal)
+                        leds.set_state(OrbState.AMBIENT)
+                        web_status.set_state(OrbState.AMBIENT)
+                        continue
+
+                    if not transcript.strip():
+                        logging.info("Empty transcript. Returning to ambient mode.")
+                        audio.play_file_blocking(cfg.paths.down_chime)
+                        ambient.fade_to(cfg.ambient_volume_normal)
+                        leds.set_state(OrbState.AMBIENT)
+                        web_status.set_state(OrbState.AMBIENT)
+                        continue
+
+                    if cfg.conversation.enabled and conversation.maybe_reset_for_inactivity():
+                        logging.info("Conversation reset due to inactivity timeout.")
+
+                    if cfg.conversation.enabled:
+                        messages = conversation.build_messages(cfg.chat_system_prompt, transcript)
+                    else:
+                        messages = [
+                            {"role": "system", "content": cfg.chat_system_prompt},
+                            {"role": "user", "content": transcript},
+                        ]
+
+                    reply = ai.chat(messages=messages, model=cfg.models.chat)
+                    logging.info("Assistant: %s", reply)
+
+                    if cfg.conversation.enabled:
+                        conversation.add_turn(transcript, reply)
+
+                web_status.set_last_transcript(transcript)
+                web_status.set_last_reply(reply)
+                web_status.set_last_error(None)
+
+                tts_path = ai.tts(reply, cfg.models.tts, cfg.paths.tts_output) if not get_simulation_enabled() else cfg.paths.down_chime
 
                 leds.set_state(OrbState.SPEAKING)
+                web_status.set_state(OrbState.SPEAKING)
                 play_with_led_sync(tts_path, leds, audio)
 
                 ambient.fade_to(cfg.ambient_volume_normal)
                 leds.set_state(OrbState.AMBIENT)
+                web_status.set_state(OrbState.AMBIENT)
             except Exception as exc:
                 logging.exception("Interaction failed: %s", exc)
+                web_status.set_last_error(str(exc))
                 leds.set_state(OrbState.ERROR)
+                web_status.set_state(OrbState.ERROR)
                 audio.play_file_blocking(cfg.paths.down_chime)
                 ambient.fade_to(cfg.ambient_volume_normal)
                 leds.set_state(OrbState.AMBIENT)
+                web_status.set_state(OrbState.AMBIENT)
                 time.sleep(0.3)
             finally:
                 if recording is not None:
@@ -210,7 +265,9 @@ def run() -> None:
     finally:
         for trigger_input in inputs:
             trigger_input.stop()
+        web_server.stop()
         ambient.stop()
+        web_status.set_ambient_running(False)
         leds.stop()
 
 
