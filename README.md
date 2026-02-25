@@ -197,6 +197,43 @@ API behavior notes:
    - Ambient remains ducked during speech.
    - Ambient fades back to normal after playback.
 
+
+## Windows SD-card staging setup
+
+If you want to prepare a deploy bundle on a Windows machine *before* moving it to an SD card, use the included PowerShell script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-sd-staging.ps1 `
+  -ProjectRoot . `
+  -OutputDir sd_staging `
+  -StopKeyword "orb sleep" `
+  -EnableWakeWord `
+  -WakeWord "orb"
+```
+
+What it does:
+- Verifies required audio files exist in `assets/`.
+- Copies `config.yaml` and updates `stop_keyword` + wake-word settings.
+- Copies required audio assets into a staging folder.
+- Creates `orb.env` containing your OpenAI API key.
+- Writes a short transfer guide at `sd_staging/README-WINDOWS-STAGING.txt`.
+
+Output layout:
+
+```text
+sd_staging/
+├── README-WINDOWS-STAGING.txt
+└── orb/
+    ├── config.yaml
+    ├── orb.env
+    └── assets/
+        ├── ambient_loop.ogg
+        ├── glass_chime.wav
+        └── down_chime.wav
+```
+
+After copying to the Pi, continue with the Linux setup and runtime steps in this README.
+
 ## Troubleshooting
 
 ### ALSA input/output device issues
