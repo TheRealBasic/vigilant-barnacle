@@ -59,6 +59,14 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+## Run tests
+
+After installing dependencies, run the pure-Python test suite from repo root:
+
+```bash
+PYTHONPATH=src pytest -q
+```
+
 ## OpenAI API key
 
 ```bash
