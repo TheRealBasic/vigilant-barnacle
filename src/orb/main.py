@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from .audio import AmbientPlayer, AudioIO
-from .config import load_config
+from .config import ConfigError, load_config
 from .gpio import build_touch_input
 from .leds import LedConfig, OrbLEDController
 from .openai_client import OrbOpenAIClient
@@ -47,7 +47,12 @@ def run() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as exc:
+        logging.fatal("Invalid configuration: %s", exc)
+        raise SystemExit(1) from exc
+
     dry_run = args.dry_run or cfg.dry_run.enabled
 
     if not os.getenv("OPENAI_API_KEY"):
