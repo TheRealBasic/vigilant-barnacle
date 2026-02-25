@@ -159,3 +159,26 @@ def test_orb_config_conversation_values() -> None:
     assert config.conversation.enabled is True
     assert config.conversation.max_turns == 3
     assert config.conversation.reset_timeout_seconds == 120.0
+
+
+def test_orb_config_web_defaults() -> None:
+    config = OrbConfig.from_dict(_valid_config_dict())
+
+    assert config.web.enabled is False
+    assert config.web.host == "127.0.0.1"
+    assert config.web.port == 8765
+
+
+def test_orb_config_web_values() -> None:
+    data = _valid_config_dict()
+    data["web"] = {
+        "enabled": True,
+        "host": "0.0.0.0",
+        "port": 9988,
+    }
+
+    config = OrbConfig.from_dict(data)
+
+    assert config.web.enabled is True
+    assert config.web.host == "0.0.0.0"
+    assert config.web.port == 9988

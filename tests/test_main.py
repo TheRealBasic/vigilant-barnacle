@@ -152,6 +152,7 @@ def test_run_cleans_up_recording_when_interaction_raises(monkeypatch: pytest.Mon
         models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
         wake_word=SimpleNamespace(enabled=False, keyword="orb", engine="mock", allow_touch=True),
         conversation=SimpleNamespace(enabled=False, max_turns=6, reset_timeout_seconds=None),
+        web=SimpleNamespace(enabled=False, host="127.0.0.1", port=8765),
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -214,6 +215,7 @@ def test_run_selects_trigger_sources(monkeypatch: pytest.MonkeyPatch, tmp_path, 
         models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
         wake_word=SimpleNamespace(enabled=wake_enabled, keyword="orb", engine="mock", allow_touch=allow_touch),
         conversation=SimpleNamespace(enabled=False, max_turns=6, reset_timeout_seconds=None),
+        web=SimpleNamespace(enabled=False, host="127.0.0.1", port=8765),
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -290,6 +292,20 @@ class _ConversationAwareAI:
         return "/tmp/reply.mp3"
 
 
+class _DummyWebServer:
+    started = 0
+    stopped = 0
+
+    def __init__(self, **_kwargs) -> None:
+        return None
+
+    def start(self) -> None:
+        type(self).started += 1
+
+    def stop(self) -> None:
+        type(self).stopped += 1
+
+
 def test_run_resets_conversation_on_stop_keyword(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     ai = _ConversationAwareAI(["hello", "orb sleep", "hello again"])
 
@@ -325,6 +341,7 @@ def test_run_resets_conversation_on_stop_keyword(monkeypatch: pytest.MonkeyPatch
         models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
         wake_word=SimpleNamespace(enabled=False, keyword="orb", engine="mock", allow_touch=True),
         conversation=SimpleNamespace(enabled=True, max_turns=6, reset_timeout_seconds=None),
+        web=SimpleNamespace(enabled=False, host="127.0.0.1", port=8765),
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -346,6 +363,63 @@ def test_run_resets_conversation_on_stop_keyword(monkeypatch: pytest.MonkeyPatch
         {"role": "system", "content": "You are Orb."},
         {"role": "user", "content": "hello again"},
     ]
+
+
+def test_run_web_lifecycle_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    _DummyWebServer.started = 0
+    _DummyWebServer.stopped = 0
+
+    cfg = SimpleNamespace(
+        dry_run=SimpleNamespace(enabled=True),
+        paths=SimpleNamespace(
+            tts_output=str(tmp_path / "tts" / "reply.mp3"),
+            glass_chime="glass.wav",
+            down_chime="down.wav",
+            ambient_loop="ambient.ogg",
+            mpv_socket=str(tmp_path / "mpv.sock"),
+        ),
+        led_count=16,
+        led_pin=18,
+        led_brightness=0.2,
+        led_dma=10,
+        led_freq_hz=800000,
+        led_invert=False,
+        gpio_pin_touch=17,
+        touch_bounce_seconds=0.05,
+        ambient_volume_normal=20,
+        ambient_volume_ducked=6,
+        ambient_fade_step=1,
+        ambient_fade_interval=0.01,
+        record_sample_rate=16000,
+        record_channels=1,
+        record_blocksize=1024,
+        silence_seconds=1.0,
+        max_record_seconds=4.0,
+        silence_threshold_multiplier=1.3,
+        stop_keyword="stop",
+        chat_system_prompt="You are Orb.",
+        models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
+        wake_word=SimpleNamespace(enabled=False, keyword="orb", engine="mock", allow_touch=True),
+        conversation=SimpleNamespace(enabled=False, max_turns=6, reset_timeout_seconds=None),
+        web=SimpleNamespace(enabled=True, host="127.0.0.1", port=8765),
+    )
+
+    monkeypatch.setattr(main.argparse.ArgumentParser, "parse_args", lambda self: SimpleNamespace(config="x", dry_run=True))
+    monkeypatch.setattr(main, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(main.threading, "Event", _OneShotEvent)
+    monkeypatch.setattr(main, "build_touch_input", lambda **_kwargs: _DummyTouch())
+    monkeypatch.setattr(main, "build_wake_word_input", lambda **_kwargs: _DummyTouch())
+    monkeypatch.setattr(main, "AmbientPlayer", lambda **_kwargs: _DummyAmbient())
+    monkeypatch.setattr(main, "AudioIO", lambda **_kwargs: _DummyAudio())
+    monkeypatch.setattr(main, "OrbOpenAIClient", lambda: _DummyAI(fail_step="none"))
+    monkeypatch.setattr(main, "OrbLEDController", lambda *_args, **_kwargs: _DummyLEDs())
+    monkeypatch.setattr(main, "play_with_led_sync", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "OrbWebServer", _DummyWebServer)
+
+    main.run()
+
+    assert _DummyWebServer.started == 1
+    assert _DummyWebServer.stopped == 1
 
 
 def test_run_resets_conversation_on_reset_phrase(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -383,6 +457,7 @@ def test_run_resets_conversation_on_reset_phrase(monkeypatch: pytest.MonkeyPatch
         models=SimpleNamespace(transcribe="m1", chat="m2", tts="m3"),
         wake_word=SimpleNamespace(enabled=False, keyword="orb", engine="mock", allow_touch=True),
         conversation=SimpleNamespace(enabled=True, max_turns=6, reset_timeout_seconds=None),
+        web=SimpleNamespace(enabled=False, host="127.0.0.1", port=8765),
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
